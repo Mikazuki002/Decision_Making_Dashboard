@@ -1,0 +1,242 @@
+{% extends 'dtr/base.html' %}
+{% block title %}Dashboard · Office DTR{% endblock %}
+
+{% block extra_head %}
+<style>
+    .insight-card { border-left: 4px solid #0d6efd; }
+    .insight-card .value { font-size: 1.6rem; font-weight: 700; }
+    .insight-card .label { color: #6c757d; font-size: 0.85rem; }
+    #version-stamp { font-family: monospace; }
+    .chart-wrap { position: relative; height: 320px; }
+    @media (min-width: 992px) { .chart-wrap { height: 360px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-0">📊 Decision-Making Dashboard</h2>
+        <p class="text-muted mb-0 small">
+            Visual insights that update automatically when DTR data changes.
+        </p>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="badge bg-info" id="version-stamp">v:…</span>
+        <span class="badge bg-secondary" id="last-updated">updating…</span>
+        <a href="{% url 'dtr:download_excel' %}" class="btn btn-success btn-sm">
+            ⬇️ Download Excel
+        </a>
+        <form method="post" action="{% url 'dtr:dashboard_upload' %}"
+              enctype="multipart/form-data" class="d-inline">
+            {% csrf_token %}
+            <label class="btn btn-primary btn-sm mb-0">
+                📤 Upload Modified Excel
+                <input type="file" name="file" accept=".xlsx" hidden
+                       onchange="this.form.submit()">
+            </label>
+        </form>
+    </div>
+</div>
+
+{# ---------- Quick Insights (decision-making) ---------- #}
+<div class="row g-3 mb-3">
+    <div class="col-md-3 col-sm-6">
+        <div class="card insight-card shadow-sm h-100">
+            <div class="card-body">
+                <div class="label">Completion rate (14 days)</div>
+                <div class="value" id="i-completion">—</div>
+                <div class="small text-muted" id="i-completion-detail"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="card insight-card shadow-sm h-100" style="border-color:#198754">
+            <div class="card-body">
+                <div class="label">Top performer (total hrs)</div>
+                <div class="value" id="i-top" style="font-size:1.15rem">—</div>
+                <div class="small text-muted" id="i-top-detail"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="card insight-card shadow-sm h-100" style="border-color:#dc3545">
+            <div class="card-body">
+                <div class="label">Most late arrivals</div>
+                <div class="value" id="i-late" style="font-size:1.15rem">—</div>
+                <div class="small text-muted" id="i-late-detail"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="card insight-card shadow-sm h-100" style="border-color:#ffc107">
+            <div class="card-body">
+                <div class="label">Busiest day</div>
+                <div class="value" id="i-busy" style="font-size:1.15rem">—</div>
+                <div class="small text-muted" id="i-busy-detail"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ---------- Charts (4) ---------- #}
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title">⏱ Total hours per employee (last 14 days)</h6>
+                <div class="chart-wrap"><canvas id="chart-hours"></canvas></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title">📌 Attendance status distribution</h6>
+                <div class="chart-wrap"><canvas id="chart-status"></canvas></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title">📈 Daily total hours trend</h6>
+                <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title">🏢 Department comparison</h6>
+                <div class="chart-wrap"><canvas id="chart-dept"></canvas></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    /* -------- Chart factories (one per canvas) -------- */
+    const chartCommon = {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 400 },
+        plugins: { legend: { position: 'bottom' } },
+    };
+    const charts = {
+        hours: new Chart(document.getElementById('chart-hours'), {
+            type: 'bar',
+            data: { labels: [], datasets: [{
+                label: 'Hours', data: [],
+                backgroundColor: 'rgba(13, 110, 253, 0.7)',
+            }]},
+            options: { ...chartCommon, indexAxis: 'y',
+                scales: { x: { beginAtZero: true, title: {display:true,text:'hours'} } } },
+        }),
+        status: new Chart(document.getElementById('chart-status'), {
+            type: 'doughnut',
+            data: { labels: [], datasets: [{
+                data: [],
+                backgroundColor: ['#198754', '#ffc107', '#6c757d', '#0d6efd', '#dc3545'],
+            }]},
+            options: chartCommon,
+        }),
+        trend: new Chart(document.getElementById('chart-trend'), {
+            type: 'line',
+            data: { labels: [], datasets: [{
+                label: 'Total hours', data: [],
+                borderColor: '#0d6efd', backgroundColor: 'rgba(13,110,253,0.15)',
+                tension: 0.3, fill: true,
+            }, {
+                label: 'Records', data: [],
+                borderColor: '#198754', backgroundColor: 'rgba(25,135,84,0.1)',
+                tension: 0.3, yAxisID: 'y2',
+            }]},
+            options: { ...chartCommon,
+                scales: {
+                    y:  { beginAtZero: true, title: {display:true,text:'hours'} },
+                    y2: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false },
+                          title: {display:true,text:'records'} },
+                },
+            },
+        }),
+        dept: new Chart(document.getElementById('chart-dept'), {
+            type: 'bar',
+            data: { labels: [], datasets: [{
+                label: 'Total hours', data: [],
+                backgroundColor: 'rgba(220, 53, 69, 0.7)',
+            }]},
+            options: { ...chartCommon,
+                scales: { y: { beginAtZero: true } } },
+        }),
+    };
+
+    /* -------- Render insights + chart data -------- */
+    function render(p) {
+        // Insights
+        const i = p.insights;
+        document.getElementById('i-completion').textContent = i.completion_rate + '%';
+        document.getElementById('i-completion-detail').textContent =
+            `${i.complete} complete · ${i.absent} absent · ${i.timed_in} open`;
+        document.getElementById('i-top').textContent = i.top_employee;
+        document.getElementById('i-top-detail').textContent =
+            `avg ${i.avg_hours_per_employee} hrs / employee`;
+        document.getElementById('i-late').textContent = i.late_leader;
+        document.getElementById('i-late-detail').textContent =
+            `${i.late_count_leader} late check-in(s) in window`;
+        document.getElementById('i-busy').textContent = i.busiest_day;
+        document.getElementById('i-busy-detail').textContent =
+            `window: ${p.window.from} → ${p.window.to}`;
+
+        // Chart data
+        charts.hours.data.labels   = p.employees.labels;
+        charts.hours.data.datasets[0].data = p.employees.hours;
+        charts.hours.update();
+
+        charts.status.data.labels  = p.status.labels;
+        charts.status.data.datasets[0].data = p.status.values;
+        charts.status.update();
+
+        charts.trend.data.labels   = p.trend.labels;
+        charts.trend.data.datasets[0].data = p.trend.hours;
+        charts.trend.data.datasets[1].data = p.trend.counts;
+        charts.trend.update();
+
+        charts.dept.data.labels    = p.departments.labels;
+        charts.dept.data.datasets[0].data = p.departments.hours;
+        charts.dept.update();
+
+        // Stamps
+        document.getElementById('version-stamp').textContent = 'v:' + p.version;
+        document.getElementById('version-stamp').className = 'badge bg-success';
+        const updated = new Date(p.generated_at);
+        document.getElementById('last-updated').textContent =
+            'updated ' + updated.toLocaleTimeString();
+    }
+
+    /* -------- Polling loop (auto-update) -------- */
+    let lastVersion = null;
+    let inFlight = false;
+    async function poll() {
+        if (inFlight) return;
+        inFlight = true;
+        try {
+            const res = await fetch('{% url "dtr:dashboard_data" %}', {cache: 'no-store'});
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.version !== lastVersion) {
+                lastVersion = data.version;
+                render(data);
+            }
+        } catch (e) {
+            // network blip — try again next tick
+        } finally {
+            inFlight = false;
+        }
+    }
+    poll();
+    setInterval(poll, 5000);  // every 5 seconds; only re-renders on change
+})();
+{% endblock %}

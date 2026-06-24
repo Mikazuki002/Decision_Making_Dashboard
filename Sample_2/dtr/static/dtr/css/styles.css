@@ -1,0 +1,15 @@
+/* Office DTR custom styles */
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+.table thead th { white-space: nowrap; }
+.table td, .table th { vertical-align: middle; }
+
+.flash-update {
+    animation: flash 1.2s ease-out;
+}
+@keyframes flash {
+    0%   { background-color: #fff3cd; }
+    100% { background-color: transparent; }
+}
+
+.cursor-pointer { cursor: pointer; }
